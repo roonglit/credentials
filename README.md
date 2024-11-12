@@ -5,60 +5,41 @@ The `credentials` module provides a secure way to manage both sensitive and non-
 ## Features
 
 - **Encrypted Credentials**: Store sensitive configuration values (like API keys) in an encrypted file.
-- **Plain Text Configurations**: Manage non-sensitive configurations in a simple YAML file.
 - **Environment Variables**: Environment variables can override configurations, providing additional flexibility.
 - **Custom Configuration Structs**: Define your own configuration struct and pass it to the module, making it adaptable to any configuration needs.
 
 ## Installation
 
-To use this module in your project, first install it and its dependencies.
+To use this module in your project, install it and its dependencies using `go install`.
 
-### 1. Add the Module
+### 1. Install the Tool Globally
 
-Run the following command to add this module to your project:
-
-```sh
-go get github.com/yourusername/credentials
-```
-
-### 2. Add Dependencies
-
-This module depends on `viper` for configuration management. Install `viper` using:
+Run the following command to install the `credentials` command-line tool globally:
 
 ```sh
-go get github.com/spf13/viper
+go install github.com/roonglit/credentials/cmd/credentials@latest
 ```
 
-After these steps, your `go.mod` should reflect both modules as dependencies.
+This will install the `credentials` tool to your Go binaries, allowing you to use it anywhere on your system.
 
-## Setting Up Your Configuration
+## Initialize Configuration Files
 
-### 1. Create `master.key`
+To initialize the configuration files, use the `credentials edit` command. This command will generate the `master.key` and create the `credentials.yml.enc` file in the `config` folder if they do not already exist.
 
-The `master.key` file is used to encrypt and decrypt sensitive data in `credentials.yml.enc`. The `master.key` will be generated automatically if it does not exist when running the module for the first time.
+- **`master.key`**: This file is used to encrypt and decrypt sensitive data in `credentials.yml.enc`. It will be generated automatically in the `config` folder if it does not exist.
+- **`credentials.yml.enc`**: This encrypted file stores sensitive information, such as API keys. It will also be created in the `config` folder.
 
-### 2. Create Encrypted Configuration File (`credentials.yml.enc`)
+To edit or initialize the encrypted configuration, run the following command:
 
-Store sensitive information in an encrypted file named `credentials.yml.enc`. Use the module's editor to initialize and manage this file. **Ensure `master.key` is present before editing the file.**
-
-### 3. Create Plain Text Configuration File (`application.yaml`)
-
-For non-sensitive configurations, create an `application.yaml` file in the `config` directory. Here’s an example:
-
-```yaml
-debug:
-  ServerAddress: "localhost:8080"
-  DBUri: "mongodb://localhost:27017"
-production:
-  ServerAddress: "prodserver:8080"
-  DBUri: "mongodb://prodserver:27017"
+```sh
+credentials edit
 ```
 
-## Usage
+## Reading Configuration in Your Project
 
 ### Define Your Configuration Struct
 
-Define a custom struct with fields that match the configuration keys in `application.yaml` and `credentials.yml.enc`. Use `mapstructure` tags to map the struct fields to the configuration keys.
+Define a custom struct with fields that match the configuration keys in `credentials.yml.enc`. Use `mapstructure` tags to map the struct fields to the configuration keys.
 
 ```go
 package main
@@ -68,7 +49,7 @@ import (
     "log"
     "time"
     
-    "github.com/yourusername/credentials/pkg/credentials"
+    "github.com/roonglit/credentials/pkg/credentials"
 )
 
 // Define your custom configuration struct
@@ -83,16 +64,15 @@ type MyConfig struct {
 
 ### Initialize and Use the `ConfigReader`
 
-Use `ConfigReader` to load and decrypt configurations. The `Read` method will populate your custom struct with values from `application.yaml`, `credentials.yml.enc`, and environment variables.
+Use `ConfigReader` to load and decrypt configurations. The `Read` method will populate your custom struct with values from `credentials.yml.enc` and environment variables.
 
 ```go
 func main() {
     configDir := "config"
     credentialsFile := "credentials.yml.enc"
     masterKeyFile := "master.key"
-    applicationConfig := "config/application.yaml"
 
-    reader := credentials.NewConfigReader(configDir, credentialsFile, masterKeyFile, applicationConfig)
+    reader := credentials.NewConfigReader(configDir, credentialsFile, masterKeyFile)
 
     // User-defined configuration struct
     var config MyConfig
@@ -105,50 +85,6 @@ func main() {
     fmt.Printf("Loaded Configuration: %+v\n", config)
 }
 ```
-
-### Running the Application
-
-## Installing the Credentials Command-Line Tool
-
-To use the `credentials` command-line tool, you can install it using `go install`:
-
-1. **Install the Tool Globally**:
-
-   Run the following command to install the `credentials` command-line tool globally:
-
-   ```sh
-   go install github.com/yourusername/credentials/cmd/credentials@latest
-   ```
-
-   This will install the `credentials` tool to your Go binaries, allowing you to use it anywhere on your system.
-
-2. **Edit Encrypted Configuration**:
-   If this is the first time setting up, the `master.key` will be generated automatically if it does not exist. Then, use the `credentials` command-line tool to open and edit `credentials.yml.enc`.
-
-   ```sh
-   credentials edit
-   ```
-
-1. **Edit Encrypted Configuration**:
-   If this is the first time setting up, the `master.key` will be generated automatically if it does not exist. Then, use the built `credentials` command-line tool to open and edit `credentials.yml.enc`.
-
-   ```sh
-   ./credentials edit
-   ```
-
-## Example Commands
-
-- **Edit Encrypted Configuration**: Use the installed `credentials` command-line tool to edit the encrypted configuration.
-
-  ```sh
-  credentials edit
-  ```
-
-- **Read Configuration**: Read and display decrypted configurations. This command decrypts and loads values into the struct provided to `Read`.
-
-  ```go
-  ./credentials read
-  ```
 
 ## License
 
