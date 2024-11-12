@@ -37,6 +37,14 @@ credentials edit
 
 ## Reading Configuration in Your Project
 
+### Install the Credentials Package
+
+Run the following command to install the credentials package into your project:
+
+```sh
+go get github.com/roonglit/credentials/pkg/credentials
+```
+
 ### Define Your Configuration Struct
 
 Define a custom struct with fields that match the configuration keys in `credentials.yml.enc`. Use `mapstructure` tags to map the struct fields to the configuration keys.
@@ -93,4 +101,3 @@ This project is licensed under the MIT License.
 ## Contributing
 
 Contributions are welcome! If you have suggestions or improvements, feel free to open a pull request.
-
