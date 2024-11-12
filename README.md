@@ -89,8 +89,7 @@ func main() {
         log.Fatalf("Failed to read configuration: %v", err)
     }
 
-    fmt.Printf("Loaded Configuration: %+v
-", config)
+    fmt.Printf("Loaded Configuration: %+v\n", config)
 }
 ```
 
