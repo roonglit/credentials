@@ -74,13 +74,12 @@ type MyConfig struct {
 
 Use `ConfigReader` to load and decrypt configurations. The `Read` method will populate your custom struct with values from `credentials.yml.enc` and environment variables.
 
+Here's how to initialize and use the `ConfigReader` with the default configuration folder:
+
 ```go
 func main() {
-    configDir := "config"
-    credentialsFile := "credentials.yml.enc"
-    masterKeyFile := "master.key"
-
-    reader := credentials.NewConfigReader(configDir, credentialsFile, masterKeyFile)
+    // Initialize the ConfigReader with the default config folder
+    reader := credentials.NewConfigReader()
 
     // User-defined configuration struct
     var config MyConfig
@@ -90,8 +89,15 @@ func main() {
         log.Fatalf("Failed to read configuration: %v", err)
     }
 
-    fmt.Printf("Loaded Configuration: %+v\n", config)
+    fmt.Printf("Loaded Configuration: %+v
+", config)
 }
+```
+
+If your configuration folder is different, you can provide the path as an argument:
+
+```go
+reader := credentials.NewConfigReader("path/to/config")
 ```
 
 ## License
@@ -101,3 +107,4 @@ This project is licensed under the MIT License.
 ## Contributing
 
 Contributions are welcome! If you have suggestions or improvements, feel free to open a pull request.
+

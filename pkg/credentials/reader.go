@@ -16,17 +16,24 @@ import (
 
 // ConfigReader manages reading and decrypting the configuration file
 type ConfigReader struct {
-	ConfigDir       string
 	CredentialsFile string
 	MasterKeyFile   string
 }
 
 // NewConfigReader initializes a new ConfigReader with the specified paths
-func NewConfigReader(configDir, credentialsFile, masterKeyFile string) *ConfigReader {
+func NewConfigReader(configDir ...string) *ConfigReader {
+	var dir string
+	if len(configDir) > 0 && configDir[0] != "" {
+		dir = configDir[0]
+	} else {
+		dir = "config"
+	}
+
+	credentialsFile := "credentials.yml.enc"
+	masterKeyFile := "master.key"
 	return &ConfigReader{
-		ConfigDir:       configDir,
-		CredentialsFile: filepath.Join(configDir, credentialsFile),
-		MasterKeyFile:   filepath.Join(configDir, masterKeyFile),
+		CredentialsFile: filepath.Join(dir, credentialsFile),
+		MasterKeyFile:   filepath.Join(dir, masterKeyFile),
 	}
 }
 
