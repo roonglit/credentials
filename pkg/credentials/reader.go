@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,14 +15,31 @@ import (
 	"github.com/spf13/viper"
 )
 
+type IConfigReader interface {
+	UnmarshalKey(key string, rawVal any) error
+	ReadConfig(in io.Reader) error
+}
+
+type ViperConfigReader struct{}
+
+func (v *ViperConfigReader) UnmarshalKey(key string, rawVal any) error {
+	return viper.UnmarshalKey(key, rawVal)
+}
+
+func (v *ViperConfigReader) ReadConfig(in io.Reader) error {
+	return viper.ReadConfig(in)
+
+}
+
 // ConfigReader manages reading and decrypting the configuration file
 type ConfigReader struct {
 	CredentialsFile string
 	MasterKeyFile   string
+	ViperConfig     IConfigReader
 }
 
 // NewConfigReader initializes a new ConfigReader with the specified paths
-func NewConfigReader(configDir ...string) *ConfigReader {
+func NewConfigReader(configReader IConfigReader, configDir ...string) *ConfigReader {
 	var dir string
 	if len(configDir) > 0 && configDir[0] != "" {
 		dir = configDir[0]
@@ -34,6 +52,7 @@ func NewConfigReader(configDir ...string) *ConfigReader {
 	return &ConfigReader{
 		CredentialsFile: filepath.Join(dir, credentialsFile),
 		MasterKeyFile:   filepath.Join(dir, masterKeyFile),
+		ViperConfig:     configReader,
 	}
 }
 
@@ -61,9 +80,10 @@ func (cr *ConfigReader) Read(mode string, config interface{}) error {
 	if err = viper.ReadConfig(bytes.NewBuffer(decryptedContent)); err != nil {
 		return fmt.Errorf("failed to read decrypted config: %w", err)
 	}
-
+	myString := string(decryptedContent[:])
+	fmt.Print(myString)
 	// Unmarshal into the provided configuration struct
-	if err = viper.UnmarshalKey(mode, config); err != nil {
+	if err = cr.ViperConfig.UnmarshalKey(mode, config); err != nil {
 		return fmt.Errorf("failed to unmarshal configuration: %w", err)
 	}
 
