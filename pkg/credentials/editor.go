@@ -10,25 +10,44 @@ import (
 	"path/filepath"
 )
 
+type IExecutor interface {
+	Run(name string, arg ...string) error
+}
+
 type ConfigEditor struct {
 	ConfigDir       string
 	CredentialsFile string
 	MasterKeyFile   string
 	Editor          string
+	Executor        IExecutor
 }
 
-func NewConfigEditor(configDir, credentialsFile, masterKeyFile, editor string) *ConfigEditor {
+type CommandExecutor struct{}
+
+func (e *CommandExecutor) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
+func (e *CommandExecutor) Run(name string, arg ...string) error {
+	cmd := exec.Command(name, arg...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	return cmd.Run()
+}
+
+func NewConfigEditor(configDir, credentialsFile, masterKeyFile, editor string, executor IExecutor) *ConfigEditor {
 	return &ConfigEditor{
 		ConfigDir:       configDir,
 		CredentialsFile: filepath.Join(configDir, credentialsFile),
 		MasterKeyFile:   filepath.Join(configDir, masterKeyFile),
 		Editor:          editor,
+		Executor:        executor,
 	}
 }
 
-// OpenEditor decrypts the credentials file, opens it in an editor for modification,
+// OpenWithCommandExecutor decrypts the credentials file, opens it in an editor for modification,
 // and then re-encrypts and saves the updated content.
-func (ce *ConfigEditor) OpenEditor() error {
+func (ce *ConfigEditor) OpenWithCommandExecutor() error {
 	// Ensure the config directory exists
 	if err := os.MkdirAll(ce.ConfigDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
@@ -96,10 +115,7 @@ func (ce *ConfigEditor) OpenEditor() error {
 	}
 
 	// Open the temporary file in the specified editor
-	cmd := exec.Command(ce.Editor, tmpfile.Name())
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	if err := cmd.Run(); err != nil {
+	if err := ce.Executor.Run(ce.Editor, tmpfile.Name()); err != nil {
 		return fmt.Errorf("failed to open editor: %w", err)
 	}
 
@@ -108,6 +124,7 @@ func (ce *ConfigEditor) OpenEditor() error {
 	if err != nil {
 		return fmt.Errorf("failed to read edited content: %w", err)
 	}
+	fmt.Println(editedText)
 
 	// Check if changes were made
 	if bytes.Equal(editedText, plaintext) {
@@ -121,6 +138,7 @@ func (ce *ConfigEditor) OpenEditor() error {
 
 // EncryptAndSave encrypts the provided data and writes it to the credentials file.
 func (ce *ConfigEditor) EncryptAndSave(data []byte, keyString string) error {
+	fmt.Println(">>>>> a", keyString)
 	encryptedData, err := encryptConfig(keyString, data)
 	if err != nil {
 		return err
