@@ -139,10 +139,6 @@ func (ce *ConfigEditor) Open() error {
 	}
 
 	// Check if changes were made
-	a := string(editedText[:])
-	b := string(plaintext[:])
-	fmt.Println(">>>>> editedText", a)
-	fmt.Println(">>>>> plaintext", b)
 	if bytes.Equal(editedText, plaintext) {
 		fmt.Println("No changes made. Credentials remain the same.")
 		return nil
