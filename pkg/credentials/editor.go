@@ -10,25 +10,56 @@ import (
 	"path/filepath"
 )
 
+type IExecutor interface {
+	Run(name string, arg ...string) error
+}
+
+type IFileManager interface {
+	Read(name string) ([]byte, error)
+	Write(file *os.File, plaintext []byte) (int, error)
+}
+
 type ConfigEditor struct {
 	ConfigDir       string
 	CredentialsFile string
 	MasterKeyFile   string
 	Editor          string
+	Executor        IExecutor
+	FileManager     IFileManager
 }
 
-func NewConfigEditor(configDir, credentialsFile, masterKeyFile, editor string) *ConfigEditor {
+type CommandExecutor struct{}
+type FileManager struct{}
+
+func (e *CommandExecutor) Run(name string, arg ...string) error {
+	cmd := exec.Command(name, arg...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	return cmd.Run()
+}
+
+func (f *FileManager) Read(name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
+func (f *FileManager) Write(file *os.File, plaintext []byte) (int, error) {
+	return file.Write(plaintext)
+}
+
+func NewConfigEditor(configDir, credentialsFile, masterKeyFile, editor string, executor IExecutor, fileManager IFileManager) *ConfigEditor {
 	return &ConfigEditor{
 		ConfigDir:       configDir,
 		CredentialsFile: filepath.Join(configDir, credentialsFile),
 		MasterKeyFile:   filepath.Join(configDir, masterKeyFile),
 		Editor:          editor,
+		Executor:        executor,
+		FileManager:     fileManager,
 	}
 }
 
-// OpenEditor decrypts the credentials file, opens it in an editor for modification,
+// Open decrypts the credentials file, opens it in an editor for modification,
 // and then re-encrypts and saves the updated content.
-func (ce *ConfigEditor) OpenEditor() error {
+func (ce *ConfigEditor) Open() error {
 	// Ensure the config directory exists
 	if err := os.MkdirAll(ce.ConfigDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
@@ -88,7 +119,7 @@ func (ce *ConfigEditor) OpenEditor() error {
 	defer os.Remove(tmpfile.Name())
 
 	// Write decrypted content to the temporary file
-	if _, err := tmpfile.Write(plaintext); err != nil {
+	if _, err := ce.FileManager.Write(tmpfile, plaintext); err != nil {
 		return err
 	}
 	if err := tmpfile.Close(); err != nil {
@@ -96,20 +127,22 @@ func (ce *ConfigEditor) OpenEditor() error {
 	}
 
 	// Open the temporary file in the specified editor
-	cmd := exec.Command(ce.Editor, tmpfile.Name())
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	if err := cmd.Run(); err != nil {
+
+	if err := ce.Executor.Run(ce.Editor, tmpfile.Name()); err != nil {
 		return fmt.Errorf("failed to open editor: %w", err)
 	}
 
 	// Read edited content from the temporary file
-	editedText, err := os.ReadFile(tmpfile.Name())
+	editedText, err := ce.FileManager.Read(tmpfile.Name())
 	if err != nil {
 		return fmt.Errorf("failed to read edited content: %w", err)
 	}
 
 	// Check if changes were made
+	a := string(editedText[:])
+	b := string(plaintext[:])
+	fmt.Println(">>>>> editedText", a)
+	fmt.Println(">>>>> plaintext", b)
 	if bytes.Equal(editedText, plaintext) {
 		fmt.Println("No changes made. Credentials remain the same.")
 		return nil

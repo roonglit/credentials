@@ -21,10 +21,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// credentials.ICommand = *&credentials.CommandRunner{}
 	switch os.Args[1] {
 	case "edit":
-		editor := credentials.NewConfigEditor(configDir, credentialsFile, masterKeyFile, editor)
-		if err := editor.OpenEditor(); err != nil {
+		executor := &credentials.CommandExecutor{}
+		fileManager := &credentials.FileManager{}
+		editor := credentials.NewConfigEditor(configDir, credentialsFile, masterKeyFile, editor, executor, fileManager)
+		if err := editor.Open(); err != nil {
 			log.Fatal("Failed to edit credentials:", err)
 		}
 		fmt.Println("Credentials updated successfully.")
