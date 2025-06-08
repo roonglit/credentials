@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -115,10 +117,25 @@ func automaticEnv(cfg interface{}) {
 			envVar := os.Getenv(strings.ToUpper(mapstructureTag))
 
 			if envVar != "" {
-				if field.Kind() == reflect.String {
+				switch field.Kind() {
+				case reflect.String:
 					field.SetString(envVar)
-				} else if field.Kind() == reflect.Bool {
+				case reflect.Bool:
 					field.SetBool(envVar == "true")
+				case reflect.Int:
+					if val, err := strconv.Atoi(envVar); err == nil {
+						field.SetInt(int64(val))
+					}
+				case reflect.Int64:
+					if field.Type() == reflect.TypeOf(time.Duration(0)) {
+						if dur, err := time.ParseDuration(envVar); err == nil {
+							field.SetInt(int64(dur))
+						}
+					} else {
+						if val, err := strconv.ParseInt(envVar, 10, 64); err == nil {
+							field.SetInt(val)
+						}
+					}
 				}
 			}
 		}
