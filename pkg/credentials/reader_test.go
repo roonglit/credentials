@@ -1,7 +1,6 @@
 package credentials
 
 import (
-	"os"
 	"testing"
 	"time"
 )
@@ -16,12 +15,12 @@ type Config struct {
 }
 
 func TestAutomaticEnv(t *testing.T) {
-	os.Setenv("NAME", "test-service")
-	os.Setenv("ENABLED", "true")
-	os.Setenv("REQUEST_TIMEOUT", "15m")
-	os.Setenv("REFRESH_TOKEN_DURATION", "24h")
-	os.Setenv("MAX_RETRIES", "5")
-	os.Setenv("LIMIT_SIZE", "1000")
+	t.Setenv("NAME", "test-service")
+	t.Setenv("ENABLED", "true")
+	t.Setenv("REQUEST_TIMEOUT", "15m")
+	t.Setenv("REFRESH_TOKEN_DURATION", "24h")
+	t.Setenv("MAX_RETRIES", "5")
+	t.Setenv("LIMIT_SIZE", "1000")
 
 	cfg := &Config{}
 	automaticEnv(cfg)
