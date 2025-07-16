@@ -113,52 +113,54 @@ func (cr *ConfigReader) loadExternalSources(cfg interface{}) error {
 	val := reflect.ValueOf(cfg).Elem()
 	typ := val.Type()
 
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		mapstructureTag := typ.Field(i).Tag.Get("mapstructure")
+	// Check if we should use a specific secret manager for ALL values
+	secretManager := cr.secretManagerRegistry.GetActiveSecretManager()
+	if secretManager != nil {
+		// If a secret manager is active, get ALL values from it
+		for i := 0; i < val.NumField(); i++ {
+			field := val.Field(i)
+			mapstructureTag := typ.Field(i).Tag.Get("mapstructure")
 
-		if !field.CanSet() || mapstructureTag == "" {
-			continue
-		}
+			if !field.CanSet() || mapstructureTag == "" {
+				continue
+			}
 
-		// Check secret managers first
-		if cr.secretManagerRegistry.HasConfiguredManagers() {
-			if secretValue, found, err := cr.checkSecretManagers(ctx, mapstructureTag); err != nil {
-				return err
-			} else if found {
+			// Try to get value from the active secret manager
+			secretValue, err := secretManager.GetSecret(ctx, mapstructureTag)
+			if err != nil {
+				return fmt.Errorf("failed to get secret %s from secret manager: %w", mapstructureTag, err)
+			}
+
+			// Only set the field if we got a non-empty value
+			if secretValue != "" {
 				if err := cr.setFieldValue(field, secretValue); err != nil {
 					return fmt.Errorf("failed to set field %s from secret manager: %w", mapstructureTag, err)
 				}
-				continue // Skip environment variable check if secret manager value found
 			}
+			// If secret manager is active but value is empty, leave field empty (no fallback)
 		}
+	} else {
+		// No secret manager active, use original behavior (environment variables override credentials file)
+		for i := 0; i < val.NumField(); i++ {
+			field := val.Field(i)
+			mapstructureTag := typ.Field(i).Tag.Get("mapstructure")
 
-		// Fall back to environment variables
-		if envVar := os.Getenv(strings.ToUpper(mapstructureTag)); envVar != "" {
-			if err := cr.setFieldValue(field, envVar); err != nil {
-				return fmt.Errorf("failed to set field %s from environment: %w", mapstructureTag, err)
+			if !field.CanSet() || mapstructureTag == "" {
+				continue
+			}
+
+			// Check environment variables
+			if envVar := os.Getenv(strings.ToUpper(mapstructureTag)); envVar != "" {
+				if err := cr.setFieldValue(field, envVar); err != nil {
+					return fmt.Errorf("failed to set field %s from environment: %w", mapstructureTag, err)
+				}
 			}
 		}
 	}
 	return nil
 }
 
-// checkSecretManagers checks all configured secret managers for a value
-func (cr *ConfigReader) checkSecretManagers(ctx context.Context, mapstructureTag string) (string, bool, error) {
-	// Try different secret manager prefixes for the given mapstructure tag
-	prefixes := []string{"GOOGLE_", "VAULT_"}
-	
-	for _, prefix := range prefixes {
-		envVarName := prefix + strings.ToUpper(mapstructureTag)
-		if value, found, err := cr.secretManagerRegistry.GetSecretValue(ctx, envVarName); err != nil {
-			return "", false, err
-		} else if found {
-			return value, true, nil
-		}
-	}
-	
-	return "", false, nil
-}
+
 
 // setFieldValue sets a field value with proper type conversion
 func (cr *ConfigReader) setFieldValue(field reflect.Value, value string) error {

@@ -45,26 +45,27 @@ func TestSecretManagerRegistry(t *testing.T) {
 	
 	// Test with mock secret manager
 	mockManager := NewMockSecretManager("GOOGLE_", true)
-	mockManager.SetSecret("test-secret", "secret-value")
+	mockManager.SetSecret("DATABASE_URL", "postgres://localhost:5432/test")
+	mockManager.SetSecret("API_KEY", "secret-api-key")
 	registry.managers = append(registry.managers, mockManager)
 	
-	// Test environment variable setup
-	os.Setenv("GOOGLE_DB_PASSWORD", "test-secret")
-	defer os.Unsetenv("GOOGLE_DB_PASSWORD")
-	
-	ctx := context.Background()
-	value, found, err := registry.GetSecretValue(ctx, "GOOGLE_DB_PASSWORD")
-	
-	if err != nil {
-		t.Errorf("Expected no error, got %v", err)
+	// Test without GOOGLE_SECRET environment variable - should return nil
+	activeManager := registry.GetActiveSecretManager()
+	if activeManager != nil {
+		t.Error("Expected no active secret manager without GOOGLE_SECRET set")
 	}
 	
-	if !found {
-		t.Error("Expected secret to be found")
+	// Test with GOOGLE_SECRET environment variable - should return the manager
+	os.Setenv("GOOGLE_SECRET", "1")
+	defer os.Unsetenv("GOOGLE_SECRET")
+	
+	activeManager = registry.GetActiveSecretManager()
+	if activeManager == nil {
+		t.Error("Expected active secret manager with GOOGLE_SECRET set")
 	}
 	
-	if value != "secret-value" {
-		t.Errorf("Expected 'secret-value', got '%s'", value)
+	if activeManager.GetPrefix() != "GOOGLE_" {
+		t.Errorf("Expected prefix 'GOOGLE_', got '%s'", activeManager.GetPrefix())
 	}
 }
 
@@ -81,14 +82,15 @@ func TestConfigReaderWithSecretManager(t *testing.T) {
 	}
 	
 	mockManager := NewMockSecretManager("GOOGLE_", true)
-	mockManager.SetSecret("db-secret", "postgres://localhost:5432/test")
+	mockManager.SetSecret("DATABASE_URL", "postgres://localhost:5432/test")
+	// Note: API_KEY is not set in secret manager
 	reader.secretManagerRegistry.managers = append(reader.secretManagerRegistry.managers, mockManager)
 	
 	// Set up environment variables
-	os.Setenv("GOOGLE_DATABASE_URL", "db-secret")
-	os.Setenv("API_KEY", "regular-env-var")
+	os.Setenv("GOOGLE_SECRET", "1")  // Activate Google Secret Manager
+	os.Setenv("API_KEY", "regular-env-var")  // This should be ignored when secret manager is active
 	defer func() {
-		os.Unsetenv("GOOGLE_DATABASE_URL")
+		os.Unsetenv("GOOGLE_SECRET")
 		os.Unsetenv("API_KEY")
 	}()
 	
@@ -101,6 +103,48 @@ func TestConfigReaderWithSecretManager(t *testing.T) {
 	
 	if config.DatabaseURL != "postgres://localhost:5432/test" {
 		t.Errorf("Expected database URL from secret manager, got '%s'", config.DatabaseURL)
+	}
+	
+	// API_KEY should be empty because it's not in the secret manager and secret manager is active
+	if config.APIKey != "" {
+		t.Errorf("Expected empty API key (not found in secret manager), got '%s'", config.APIKey)
+	}
+}
+
+func TestConfigReaderWithoutSecretManager(t *testing.T) {
+	// Create a test config struct
+	type TestConfig struct {
+		DatabaseURL string `mapstructure:"DATABASE_URL"`
+		APIKey      string `mapstructure:"API_KEY"`
+	}
+	
+	// Create a ConfigReader with mock secret manager
+	reader := &ConfigReader{
+		secretManagerRegistry: &SecretManagerRegistry{},
+	}
+	
+	mockManager := NewMockSecretManager("GOOGLE_", true)
+	mockManager.SetSecret("DATABASE_URL", "postgres://localhost:5432/test")
+	reader.secretManagerRegistry.managers = append(reader.secretManagerRegistry.managers, mockManager)
+	
+	// Set up environment variables but don't activate secret manager
+	os.Setenv("DATABASE_URL", "postgres://localhost:5432/env")
+	os.Setenv("API_KEY", "regular-env-var")
+	defer func() {
+		os.Unsetenv("DATABASE_URL")
+		os.Unsetenv("API_KEY")
+	}()
+	
+	var config TestConfig
+	err := reader.loadExternalSources(&config)
+	
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	
+	// Should use environment variables since secret manager is not active
+	if config.DatabaseURL != "postgres://localhost:5432/env" {
+		t.Errorf("Expected database URL from environment variable, got '%s'", config.DatabaseURL)
 	}
 	
 	if config.APIKey != "regular-env-var" {

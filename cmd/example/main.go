@@ -46,34 +46,27 @@ func main() {
 	fmt.Printf("  Vault Address: %s\n", os.Getenv("VAULT_ADDR"))
 	fmt.Printf("  Vault Token: %s\n", maskSensitive(os.Getenv("VAULT_TOKEN")))
 
-	fmt.Println("\nSecret Manager Environment Variables:")
-	secretManagerEnvs := []string{
-		"GOOGLE_DATABASE_URL",
-		"GOOGLE_API_KEY",
-		"GOOGLE_JWT_SECRET",
-		"VAULT_DATABASE_URL",
-		"VAULT_API_KEY",
-		"VAULT_JWT_SECRET",
-	}
-
-	for _, envVar := range secretManagerEnvs {
-		if value := os.Getenv(envVar); value != "" {
-			fmt.Printf("  %s: %s\n", envVar, maskSensitive(value))
-		}
-	}
+	fmt.Println("\nSecret Manager Activation:")
+	fmt.Printf("  GOOGLE_SECRET: %s\n", os.Getenv("GOOGLE_SECRET"))
+	fmt.Printf("  VAULT_SECRET: %s\n", os.Getenv("VAULT_SECRET"))
 
 	fmt.Println("\nExample usage:")
-	fmt.Println("  # To use Google Cloud Secret Manager:")
+	fmt.Println("  # To use Google Cloud Secret Manager for ALL configuration values:")
 	fmt.Println("  export GOOGLE_PROJECT_ID=\"my-project\"")
 	fmt.Println("  export GOOGLE_APPLICATION_CREDENTIALS=\"/path/to/service-account.json\"")
-	fmt.Println("  export GOOGLE_DATABASE_URL=\"db-connection-secret\"")
-	fmt.Println("  export GOOGLE_API_KEY=\"api-key-secret\"")
+	fmt.Println("  export GOOGLE_SECRET=\"1\"  # This activates Google Secret Manager")
+	fmt.Println("  # Now all config values will be loaded from Google Secret Manager")
+	fmt.Println("  # using the mapstructure tag names (DATABASE_URL, API_KEY, etc.)")
 	fmt.Println("")
-	fmt.Println("  # To use HashiCorp Vault:")
+	fmt.Println("  # To use HashiCorp Vault for ALL configuration values:")
 	fmt.Println("  export VAULT_ADDR=\"https://vault.example.com\"")
 	fmt.Println("  export VAULT_TOKEN=\"hvs.ABC123...\"")
-	fmt.Println("  export VAULT_DATABASE_URL=\"secret/data/database/url\"")
-	fmt.Println("  export VAULT_API_KEY=\"secret/data/api/key\"")
+	fmt.Println("  export VAULT_SECRET=\"1\"  # This activates Vault Secret Manager")
+	fmt.Println("  # Now all config values will be loaded from Vault")
+	fmt.Println("  # using the mapstructure tag names (DATABASE_URL, API_KEY, etc.)")
+	fmt.Println("")
+	fmt.Println("  # Without GOOGLE_SECRET or VAULT_SECRET:")
+	fmt.Println("  # Configuration will be loaded from credentials file + environment variables")
 }
 
 func maskSensitive(value string) string {

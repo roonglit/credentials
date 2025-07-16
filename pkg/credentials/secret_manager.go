@@ -2,9 +2,7 @@ package credentials
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"strings"
 )
 
 // SecretManager interface for different secret management systems
@@ -36,22 +34,27 @@ func NewSecretManagerRegistry() *SecretManagerRegistry {
 	return registry
 }
 
-// GetSecretValue checks all configured secret managers for a secret
-func (r *SecretManagerRegistry) GetSecretValue(ctx context.Context, envVarName string) (string, bool, error) {
-	for _, manager := range r.managers {
-		prefix := manager.GetPrefix()
-		if strings.HasPrefix(envVarName, prefix) {
-			// Check if there's an environment variable with this prefix
-			if secretName := os.Getenv(envVarName); secretName != "" {
-				value, err := manager.GetSecret(ctx, secretName)
-				if err != nil {
-					return "", false, fmt.Errorf("failed to get secret from %s: %w", prefix, err)
-				}
-				return value, true, nil
+// GetActiveSecretManager returns the active secret manager if one is configured via environment variables
+func (r *SecretManagerRegistry) GetActiveSecretManager() SecretManager {
+	// Check for Google Secret Manager activation
+	if os.Getenv("GOOGLE_SECRET") != "" {
+		for _, manager := range r.managers {
+			if manager.GetPrefix() == "GOOGLE_" {
+				return manager
 			}
 		}
 	}
-	return "", false, nil
+	
+	// Check for Vault Secret Manager activation
+	if os.Getenv("VAULT_SECRET") != "" {
+		for _, manager := range r.managers {
+			if manager.GetPrefix() == "VAULT_" {
+				return manager
+			}
+		}
+	}
+	
+	return nil
 }
 
 // HasConfiguredManagers returns true if any secret managers are configured
