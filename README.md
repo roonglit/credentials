@@ -99,6 +99,125 @@ If your configuration folder is different, you can provide the path as an argume
 reader := credentials.NewConfigReader("path/to/config")
 ```
 
+## Secret Manager Integration
+
+The `credentials` module now supports integration with external secret management systems, including Google Cloud Secret Manager and HashiCorp Vault. This allows you to store sensitive values in secure secret management services while maintaining the same simple configuration interface.
+
+### Supported Secret Managers
+
+1. **Google Cloud Secret Manager**
+2. **HashiCorp Vault**
+
+### How It Works
+
+The module checks for environment variables with specific prefixes (`GOOGLE_` for Google Cloud Secret Manager, `VAULT_` for Vault) that correspond to your configuration struct fields. If found, it retrieves the secret value from the respective secret manager instead of using the local credentials file or environment variables.
+
+### Configuration Priority
+
+The module follows this priority order when loading configuration values:
+
+1. **Secret Managers**: If a secret manager environment variable is set (e.g., `GOOGLE_DB_PASSWORD`), it retrieves the value from the secret manager
+2. **Environment Variables**: If no secret manager variable is found, it checks for regular environment variables (e.g., `DB_PASSWORD`)
+3. **Credentials File**: If no environment variable is found, it uses the value from the encrypted credentials file
+
+### Google Cloud Secret Manager Setup
+
+To use Google Cloud Secret Manager:
+
+1. **Set up authentication**: Ensure you have proper Google Cloud credentials configured
+2. **Set required environment variables**:
+   ```bash
+   export GOOGLE_PROJECT_ID="your-project-id"
+   export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+   # OR if running on Google Cloud
+   export GOOGLE_CLOUD_PROJECT="your-project-id"
+   ```
+
+3. **Configure secret manager variables**: For each configuration field you want to load from Google Secret Manager, set an environment variable with the `GOOGLE_` prefix:
+   ```bash
+   export GOOGLE_DB_PASSWORD="my-db-password-secret"
+   export GOOGLE_API_KEY="my-api-key-secret"
+   ```
+
+4. **Create secrets in Google Cloud**: Make sure the secrets exist in your Google Cloud Secret Manager with the names specified in the environment variables.
+
+### HashiCorp Vault Setup
+
+To use HashiCorp Vault:
+
+1. **Set up Vault connection**:
+   ```bash
+   export VAULT_ADDR="https://vault.example.com"
+   export VAULT_TOKEN="your-vault-token"
+   ```
+
+2. **Configure secret manager variables**: For each configuration field you want to load from Vault, set an environment variable with the `VAULT_` prefix:
+   ```bash
+   export VAULT_DB_PASSWORD="secret/data/database/password"
+   export VAULT_API_KEY="secret/data/api/key"
+   ```
+
+3. **Store secrets in Vault**: Make sure the secrets exist in your Vault instance at the specified paths.
+
+### Example Usage with Secret Managers
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "time"
+    
+    "github.com/roonglit/credentials/pkg/credentials"
+)
+
+type MyConfig struct {
+    ServerAddress        string        `mapstructure:"SERVER_ADDRESS"`
+    DBPassword           string        `mapstructure:"DB_PASSWORD"`
+    APIKey               string        `mapstructure:"API_KEY"`
+    AccessTokenDuration  time.Duration `mapstructure:"ACCESS_TOKEN_DURATION"`
+}
+
+func main() {
+    // Initialize the ConfigReader
+    reader := credentials.NewConfigReader()
+
+    var config MyConfig
+
+    // Read configuration - will automatically check secret managers
+    // if GOOGLE_DB_PASSWORD or VAULT_DB_PASSWORD environment variables are set
+    if err := reader.Read("production", &config); err != nil {
+        log.Fatalf("Failed to read configuration: %v", err)
+    }
+
+    fmt.Printf("Loaded Configuration: %+v\n", config)
+    
+    // The DB_PASSWORD will be loaded from:
+    // 1. Google Secret Manager if GOOGLE_DB_PASSWORD is set
+    // 2. Vault if VAULT_DB_PASSWORD is set  
+    // 3. Environment variable DB_PASSWORD if neither secret manager is configured
+    // 4. credentials.yml.enc file if no environment variable is set
+}
+```
+
+### Environment Variable Examples
+
+```bash
+# Use Google Cloud Secret Manager for database password
+export GOOGLE_PROJECT_ID="my-project"
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+export GOOGLE_DB_PASSWORD="database-password-secret"
+
+# Use Vault for API key
+export VAULT_ADDR="https://vault.company.com"
+export VAULT_TOKEN="hvs.ABC123..."
+export VAULT_API_KEY="secret/data/api/key"
+
+# Use regular environment variable for server address
+export SERVER_ADDRESS="localhost:8080"
+```
+
 ## License
 
 This project is licensed under the MIT License.
