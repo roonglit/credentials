@@ -99,6 +99,134 @@ If your configuration folder is different, you can provide the path as an argume
 reader := credentials.NewConfigReader("path/to/config")
 ```
 
+## Secret Manager Integration
+
+The `credentials` module now supports integration with external secret management systems, including Google Cloud Secret Manager and HashiCorp Vault. This allows you to store sensitive values in secure secret management services while maintaining the same simple configuration interface.
+
+### Supported Secret Managers
+
+1. **Google Cloud Secret Manager**
+2. **HashiCorp Vault**
+
+### How It Works
+
+The module supports two modes of operation:
+
+1. **Secret Manager Mode**: When activated, ALL configuration values are loaded from a single secret manager
+2. **Default Mode**: Configuration values are loaded from the credentials file and can be overridden by environment variables
+
+### Configuration Priority
+
+The module follows this priority order when loading configuration values:
+
+1. **Secret Manager Mode**: If a secret manager is activated (e.g., `GOOGLE_SECRET` is set), ALL configuration values are retrieved from that secret manager using the `mapstructure` tag names
+2. **Default Mode**: If no secret manager is activated:
+   - Environment variables override values from the credentials file
+   - Values not found in environment variables are loaded from the encrypted credentials file
+
+**Important**: When a secret manager is activated, it overrides ALL other sources. If a configuration value is not found in the secret manager, it will be empty (no fallback to environment variables or credentials file).
+
+### Google Cloud Secret Manager Setup
+
+To use Google Cloud Secret Manager:
+
+1. **Set up authentication**: Ensure you have proper Google Cloud credentials configured
+2. **Set required environment variables**:
+   ```bash
+   export GOOGLE_PROJECT_ID="your-project-id"
+   export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+   # OR if running on Google Cloud
+   export GOOGLE_CLOUD_PROJECT="your-project-id"
+   ```
+
+3. **Activate Google Secret Manager**: Set the activation environment variable:
+   ```bash
+   export GOOGLE_SECRET="1"
+   ```
+
+4. **Create secrets in Google Cloud**: Make sure the secrets exist in your Google Cloud Secret Manager with names matching your configuration struct's `mapstructure` tags (e.g., `DATABASE_URL`, `API_KEY`, `JWT_SECRET`, etc.).
+
+### HashiCorp Vault Setup
+
+To use HashiCorp Vault:
+
+1. **Set up Vault connection**:
+   ```bash
+   export VAULT_ADDR="https://vault.example.com"
+   export VAULT_TOKEN="your-vault-token"
+   ```
+
+2. **Activate Vault Secret Manager**: Set the activation environment variable:
+   ```bash
+   export VAULT_SECRET="1"
+   ```
+
+3. **Store secrets in Vault**: Make sure the secrets exist in your Vault instance with names matching your configuration struct's `mapstructure` tags (e.g., `DATABASE_URL`, `API_KEY`, `JWT_SECRET`, etc.).
+
+### Example Usage with Secret Managers
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "time"
+    
+    "github.com/roonglit/credentials/pkg/credentials"
+)
+
+type MyConfig struct {
+    ServerAddress        string        `mapstructure:"SERVER_ADDRESS"`
+    DBPassword           string        `mapstructure:"DB_PASSWORD"`
+    APIKey               string        `mapstructure:"API_KEY"`
+    AccessTokenDuration  time.Duration `mapstructure:"ACCESS_TOKEN_DURATION"`
+}
+
+func main() {
+    // Initialize the ConfigReader
+    reader := credentials.NewConfigReader()
+
+    var config MyConfig
+
+    // Read configuration - will automatically check secret managers
+    // if GOOGLE_SECRET or VAULT_SECRET environment variables are set
+    if err := reader.Read("production", &config); err != nil {
+        log.Fatalf("Failed to read configuration: %v", err)
+    }
+
+    fmt.Printf("Loaded Configuration: %+v\n", config)
+    
+    // The configuration will be loaded from:
+    // 1. Google Secret Manager if GOOGLE_SECRET is set (ALL values from secret manager)
+    // 2. Vault if VAULT_SECRET is set (ALL values from secret manager)
+    // 3. Environment variables + credentials.yml.enc file if no secret manager is activated
+}
+```
+
+### Environment Variable Examples
+
+```bash
+# Use Google Cloud Secret Manager for ALL configuration values
+export GOOGLE_PROJECT_ID="my-project"
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+export GOOGLE_SECRET="1"
+# Now ALL config values will be loaded from Google Secret Manager
+# using the mapstructure tag names (DATABASE_URL, API_KEY, etc.)
+
+# Use Vault for ALL configuration values
+export VAULT_ADDR="https://vault.company.com"
+export VAULT_TOKEN="hvs.ABC123..."
+export VAULT_SECRET="1"
+# Now ALL config values will be loaded from Vault
+# using the mapstructure tag names (DATABASE_URL, API_KEY, etc.)
+
+# Use default mode (credentials file + environment variables)
+export SERVER_ADDRESS="localhost:8080"
+export DATABASE_URL="postgres://localhost:5432/mydb"
+# Values from environment variables override credentials file
+```
+
 ## License
 
 This project is licensed under the MIT License.
