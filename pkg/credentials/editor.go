@@ -2,10 +2,12 @@ package credentials
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // DefaultEditor is used when no editor is configured and neither $VISUAL nor
@@ -20,9 +22,10 @@ type ConfigEditor struct {
 	MasterKeyFile   string
 	Editor          string
 
-	// AllowLegacy permits reading the old unauthenticated format. Off by
-	// default: see decrypt in crypto.go for why the fallback is not automatic.
-	// `credentials migrate` turns it on for exactly one read.
+	// AllowLegacy permits reading the old unauthenticated format. ON by
+	// default, so upgrading the module never stops an existing file from
+	// opening; set it false (or CREDENTIALS_ALLOW_LEGACY=0) for strict mode.
+	// Writes are always in the current format, so any save migrates the file.
 	AllowLegacy bool
 }
 
@@ -37,6 +40,7 @@ func NewConfigEditor(configDir, credentialsFile, masterKeyFile, editor string) *
 		CredentialsFile: filepath.Join(configDir, credentialsFile),
 		MasterKeyFile:   filepath.Join(configDir, masterKeyFile),
 		Editor:          editor,
+		AllowLegacy:     legacyAllowed(),
 	}
 }
 
@@ -60,13 +64,13 @@ func (ce *ConfigEditor) OpenEditor() error {
 		// an unchanged one would otherwise stay unauthenticated forever.
 		if blob, readErr := os.ReadFile(ce.CredentialsFile); readErr == nil && isLegacyFormat(blob) {
 			fmt.Println("No changes made, but migrating the file to the authenticated format.")
-			return ce.EncryptAndSave(edited, key)
+			return ce.encryptAndSave(edited, key)
 		}
 		fmt.Println("No changes made. Credentials remain the same.")
 		return nil
 	}
 
-	return ce.EncryptAndSave(edited, key)
+	return ce.encryptAndSave(edited, key)
 }
 
 // Migrate re-encrypts an existing file in the current format without opening an
@@ -90,7 +94,7 @@ func (ce *ConfigEditor) Migrate() error {
 	if err != nil {
 		return err
 	}
-	if err := ce.EncryptAndSave(plaintext, key); err != nil {
+	if err := ce.encryptAndSave(plaintext, key); err != nil {
 		return err
 	}
 	fmt.Println("Migrated", ce.CredentialsFile, "to the authenticated format.")
@@ -99,10 +103,7 @@ func (ce *ConfigEditor) Migrate() error {
 
 // open decrypts according to this editor's legacy policy.
 func (ce *ConfigEditor) open(key, blob []byte) ([]byte, error) {
-	if ce.AllowLegacy {
-		return decryptLegacy(key, blob)
-	}
-	return decrypt(key, blob)
+	return openBlob(key, blob, ce.AllowLegacy, ce.CredentialsFile)
 }
 
 // Show returns the decrypted contents.
@@ -120,7 +121,19 @@ func (ce *ConfigEditor) Show() ([]byte, error) {
 }
 
 // EncryptAndSave seals data and writes it to the credentials file.
-func (ce *ConfigEditor) EncryptAndSave(data, key []byte) error {
+//
+// keyString is hex, matching the v1.0.0 signature — this is a published API and
+// the format change underneath it is not a reason to break callers.
+func (ce *ConfigEditor) EncryptAndSave(data []byte, keyString string) error {
+	key, err := hex.DecodeString(strings.TrimSpace(keyString))
+	if err != nil {
+		return fmt.Errorf("credentials: master key is not valid hex: %w", err)
+	}
+	return ce.encryptAndSave(data, key)
+}
+
+// encryptAndSave is the internal path, taking the key as raw bytes.
+func (ce *ConfigEditor) encryptAndSave(data, key []byte) error {
 	blob, err := encrypt(key, data)
 	if err != nil {
 		return err
@@ -153,7 +166,7 @@ func (ce *ConfigEditor) load() (key, plaintext []byte, err error) {
 			return nil, nil, err
 		}
 		plaintext = []byte("initial: data\n")
-		if err := ce.EncryptAndSave(plaintext, key); err != nil {
+		if err := ce.encryptAndSave(plaintext, key); err != nil {
 			return nil, nil, fmt.Errorf("credentials: create initial file: %w", err)
 		}
 		return key, plaintext, nil

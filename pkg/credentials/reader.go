@@ -18,9 +18,9 @@ type ConfigReader struct {
 	CredentialsFile string
 	MasterKeyFile   string
 
-	// AllowLegacy permits reading the old unauthenticated format. Off by
-	// default; set CREDENTIALS_ALLOW_LEGACY=1 for a transition period, and run
-	// `credentials migrate` to stop needing it.
+	// AllowLegacy permits reading the old unauthenticated format. ON by
+	// default, so upgrading this module never stops an existing file from
+	// opening; set CREDENTIALS_ALLOW_LEGACY=0 for strict mode.
 	AllowLegacy bool
 }
 
@@ -34,7 +34,7 @@ func NewConfigReader(configDir ...string) *ConfigReader {
 	return &ConfigReader{
 		CredentialsFile: filepath.Join(dir, "credentials.yml.enc"),
 		MasterKeyFile:   filepath.Join(dir, "master.key"),
-		AllowLegacy:     os.Getenv("CREDENTIALS_ALLOW_LEGACY") == "1",
+		AllowLegacy:     legacyAllowed(),
 	}
 }
 
@@ -55,11 +55,7 @@ func (cr *ConfigReader) Read(mode string, config interface{}) error {
 	// One decryption path for the whole package — see crypto.go. A second copy
 	// lived here previously, which meant a change to one could silently diverge
 	// from the other and only surface as a boot failure in production.
-	open := decrypt
-	if cr.AllowLegacy {
-		open = decryptLegacy
-	}
-	plaintext, err := open(key, blob)
+	plaintext, err := openBlob(key, blob, cr.AllowLegacy, cr.CredentialsFile)
 	if err != nil {
 		return err
 	}

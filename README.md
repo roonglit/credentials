@@ -44,7 +44,7 @@ Environment:
 |---|---|
 | `CREDENTIALS_DIR` | directory holding `master.key` and `credentials.yml.enc` (default `config`) |
 | `VISUAL`, `EDITOR` | editor used by `edit` (default `vi`) |
-| `CREDENTIALS_ALLOW_LEGACY` | set to `1` to read pre-v2 files during a transition |
+| `CREDENTIALS_ALLOW_LEGACY` | set to `0` for strict mode: refuse pre-v2 files instead of warning |
 
 `credentials edit` creates both files on first run. It refuses to generate a new
 master key when an encrypted file already exists, since that would make the
@@ -52,10 +52,14 @@ existing file permanently unreadable.
 
 ## Migrating
 
-Old files are **not** read by default. That is deliberate: if the reader fell
-back to the legacy format whenever the header was absent, corrupting one header
-byte would force an authenticated file down the unauthenticated path — a
-downgrade attack costing a single byte.
+**Upgrading does not break anything.** Old files still open, the exported API is
+unchanged from v1.0.0, and no code change is required to bump the dependency.
+Reading a pre-v2 file prints one warning per file:
+
+```
+credentials: config/credentials.yml.enc is in the legacy unauthenticated format.
+It cannot detect tampering. Run `credentials migrate` to fix it permanently.
+```
 
 Migrate once, per project:
 
@@ -63,13 +67,16 @@ Migrate once, per project:
 credentials migrate
 ```
 
-That decrypts with the old format and rewrites with the new one, using the same
-master key. Commit the result. `credentials edit` migrates as a side effect of
-saving, so a file you were editing anyway needs nothing extra.
+It decrypts with the old format and rewrites with the new one, using the same
+master key. Commit the result; the warning stops. `credentials edit` migrates as
+a side effect of saving, so a file you were editing anyway needs nothing extra.
 
-If you need a transition period before migrating, set
-`CREDENTIALS_ALLOW_LEGACY=1` — but treat it as temporary, because nothing on that
-path can detect tampering.
+Writes are **always** in the current format — there is no way to write a legacy
+file, which is what stops the old format lingering.
+
+Set `CREDENTIALS_ALLOW_LEGACY=0` for strict mode, where an unmigrated file is an
+error rather than a warning. Worth turning on in CI once you have migrated, so a
+file cannot quietly regress.
 
 ## Reading Configuration in Your Project
 
