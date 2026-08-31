@@ -5,30 +5,46 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 )
 
-const masterKeyLength = 32 // 32 bytes for AES-256
-
-// generateMasterKey generates a new AES-256 master key and saves it to the specified path.
-func generateMasterKey(path string) ([]byte, error) {
-	masterKey := make([]byte, masterKeyLength)
-	if _, err := rand.Read(masterKey); err != nil {
-		return nil, err
+// GenerateMasterKey writes a new AES-256 key, hex-encoded, at path.
+//
+// It refuses to overwrite an existing key: doing so would make every file
+// encrypted with the old one unreadable, with no warning and no way back.
+func GenerateMasterKey(path string) ([]byte, error) {
+	if _, err := os.Stat(path); err == nil {
+		return nil, fmt.Errorf("credentials: %s already exists; refusing to overwrite it", path)
 	}
 
-	if err := os.WriteFile(path, []byte(hex.EncodeToString(masterKey)), 0600); err != nil {
-		return nil, err
+	key := make([]byte, keyLength)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("credentials: generate master key: %w", err)
 	}
-	fmt.Println("New master key generated at", path)
-	return masterKey, nil
+
+	if err := os.WriteFile(path, []byte(hex.EncodeToString(key)), 0o600); err != nil {
+		return nil, fmt.Errorf("credentials: write master key: %w", err)
+	}
+	return key, nil
 }
 
-// readMasterKey reads the AES-256 master key from the specified path.
-func readMasterKey(path string) ([]byte, error) {
-	keyHex, err := os.ReadFile(path)
+// ReadMasterKey loads and validates the key at path.
+func ReadMasterKey(path string) ([]byte, error) {
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("credentials: read master key: %w", err)
 	}
 
-	return hex.DecodeString(string(keyHex))
+	// Trim first. A key written with `echo $MASTER_KEY > master.key`, or piped
+	// through base64 -d in a Dockerfile, carries a trailing newline — which
+	// makes hex decoding fail with an error that says nothing about newlines.
+	key, err := hex.DecodeString(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return nil, fmt.Errorf("credentials: master key at %s is not valid hex: %w", path, err)
+	}
+
+	if err := checkKey(key); err != nil {
+		return nil, fmt.Errorf("%w (at %s)", err, path)
+	}
+	return key, nil
 }

@@ -2,9 +2,6 @@ package credentials
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,128 +13,166 @@ import (
 	"github.com/spf13/viper"
 )
 
-// ConfigReader manages reading and decrypting the configuration file
+// ConfigReader loads an encrypted credentials file into a struct.
 type ConfigReader struct {
 	CredentialsFile string
 	MasterKeyFile   string
+
+	// AllowLegacy permits reading the old unauthenticated format. Off by
+	// default; set CREDENTIALS_ALLOW_LEGACY=1 for a transition period, and run
+	// `credentials migrate` to stop needing it.
+	AllowLegacy bool
 }
 
-// NewConfigReader initializes a new ConfigReader with the specified paths
+// NewConfigReader builds a reader rooted at configDir, defaulting to "config".
 func NewConfigReader(configDir ...string) *ConfigReader {
-	var dir string
+	dir := "config"
 	if len(configDir) > 0 && configDir[0] != "" {
 		dir = configDir[0]
-	} else {
-		dir = "config"
 	}
 
-	credentialsFile := "credentials.yml.enc"
-	masterKeyFile := "master.key"
 	return &ConfigReader{
-		CredentialsFile: filepath.Join(dir, credentialsFile),
-		MasterKeyFile:   filepath.Join(dir, masterKeyFile),
+		CredentialsFile: filepath.Join(dir, "credentials.yml.enc"),
+		MasterKeyFile:   filepath.Join(dir, "master.key"),
+		AllowLegacy:     os.Getenv("CREDENTIALS_ALLOW_LEGACY") == "1",
 	}
 }
 
-// Read loads and decrypts configurations from the encrypted credentials file
+// Read decrypts the credentials file, selects the mode's section, and unmarshals
+// it into config, which must be a non-nil pointer to a struct. Environment
+// variables override what the file supplies.
 func (cr *ConfigReader) Read(mode string, config interface{}) error {
-	// Read and decode the master key
-	keyHex, err := os.ReadFile(cr.MasterKeyFile)
+	key, err := ReadMasterKey(cr.MasterKeyFile)
 	if err != nil {
-		return fmt.Errorf("failed to read master key: %w", err)
+		return err
 	}
-	masterKey, err := hex.DecodeString(string(keyHex))
+
+	blob, err := os.ReadFile(cr.CredentialsFile)
 	if err != nil {
-		return fmt.Errorf("failed to decode master key: %w", err)
+		return fmt.Errorf("credentials: read %s: %w", cr.CredentialsFile, err)
 	}
 
-	// Decrypt the credentials file
-	decryptedContent, err := decryptConfigFile(cr.CredentialsFile, hex.EncodeToString(masterKey))
+	// One decryption path for the whole package — see crypto.go. A second copy
+	// lived here previously, which meant a change to one could silently diverge
+	// from the other and only surface as a boot failure in production.
+	open := decrypt
+	if cr.AllowLegacy {
+		open = decryptLegacy
+	}
+	plaintext, err := open(key, blob)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt credentials file: %w", err)
+		return err
 	}
 
-	// Load the decrypted content with viper
-	viper.SetConfigType("yaml")
-	viper.AutomaticEnv()
-	if err = viper.ReadConfig(bytes.NewBuffer(decryptedContent)); err != nil {
-		return fmt.Errorf("failed to read decrypted config: %w", err)
+	// A private viper instance, not the package singleton. The global is shared
+	// process-wide, so two readers — or two parallel tests — used to overwrite
+	// each other's config.
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(bytes.NewBuffer(plaintext)); err != nil {
+		return fmt.Errorf("credentials: parse decrypted config: %w", err)
 	}
 
-	// Unmarshal into the provided configuration struct
-	if err = viper.UnmarshalKey(mode, config); err != nil {
-		return fmt.Errorf("failed to unmarshal configuration: %w", err)
+	if err := v.UnmarshalKey(mode, config); err != nil {
+		return fmt.Errorf("credentials: unmarshal %q: %w", mode, err)
 	}
 
-	// Load additional environment variables into the configuration struct
-	automaticEnv(config)
-	return nil
+	return applyEnvOverrides(config)
 }
 
-// decryptConfigFile decrypts the encrypted credentials file
-func decryptConfigFile(filename, keyString string) ([]byte, error) {
-	key, err := hex.DecodeString(keyString)
-	if err != nil {
-		return nil, err
+// applyEnvOverrides lets environment variables win over the file, matching each
+// field's mapstructure tag upper-cased.
+//
+// Every parse failure is returned rather than skipped. A malformed
+// ACCESS_TOKEN_DURATION used to leave the field at its previous value silently,
+// which is the worst outcome for configuration: the process boots, and behaves
+// as though you never set it.
+func applyEnvOverrides(cfg interface{}) error {
+	rv := reflect.ValueOf(cfg)
+	if rv.Kind() != reflect.Ptr || rv.IsNil() || rv.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("credentials: config must be a non-nil pointer to a struct, got %T", cfg)
 	}
 
-	ciphertext, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(ciphertext) < aes.BlockSize {
-		return nil, fmt.Errorf("ciphertext too short")
-	}
-
-	iv := ciphertext[:aes.BlockSize]
-	ciphertext = ciphertext[aes.BlockSize:]
-
-	stream := cipher.NewCFBDecrypter(block, iv)
-	stream.XORKeyStream(ciphertext, ciphertext)
-
-	return ciphertext, nil
-}
-
-// automaticEnv loads additional environment variables into the provided struct
-func automaticEnv(cfg interface{}) {
-	val := reflect.ValueOf(cfg).Elem()
+	val := rv.Elem()
 	typ := val.Type()
 
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
-		mapstructureTag := typ.Field(i).Tag.Get("mapstructure")
+		tag := typ.Field(i).Tag.Get("mapstructure")
+		if tag == "" || !field.CanSet() {
+			continue
+		}
 
-		if field.CanSet() && mapstructureTag != "" {
-			envVar := os.Getenv(strings.ToUpper(mapstructureTag))
+		name := strings.ToUpper(tag)
+		raw, ok := os.LookupEnv(name)
+		if !ok || raw == "" {
+			continue
+		}
 
-			if envVar != "" {
-				switch field.Kind() {
-				case reflect.String:
-					field.SetString(envVar)
-				case reflect.Bool:
-					field.SetBool(envVar == "true")
-				case reflect.Int:
-					if val, err := strconv.Atoi(envVar); err == nil {
-						field.SetInt(int64(val))
-					}
-				case reflect.Int64:
-					if field.Type() == reflect.TypeOf(time.Duration(0)) {
-						if dur, err := time.ParseDuration(envVar); err == nil {
-							field.SetInt(int64(dur))
-						}
-					} else {
-						if val, err := strconv.ParseInt(envVar, 10, 64); err == nil {
-							field.SetInt(val)
-						}
-					}
-				}
-			}
+		if err := setField(field, raw); err != nil {
+			return fmt.Errorf("credentials: %s=%q: %w", name, raw, err)
 		}
 	}
+	return nil
+}
+
+func setField(field reflect.Value, raw string) error {
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(raw)
+
+	case reflect.Bool:
+		// strconv, not raw == "true": "1", "TRUE" and "yes"-style typos should
+		// not all quietly mean false.
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return fmt.Errorf("expected a boolean: %w", err)
+		}
+		field.SetBool(b)
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		// time.Duration is an int64 with its own textual form ("15m"), so it has
+		// to be matched on the concrete type before the integer case.
+		if field.Type() == reflect.TypeOf(time.Duration(0)) {
+			d, err := time.ParseDuration(raw)
+			if err != nil {
+				return fmt.Errorf("expected a duration such as 15m or 24h: %w", err)
+			}
+			field.SetInt(int64(d))
+			return nil
+		}
+		n, err := strconv.ParseInt(raw, 10, field.Type().Bits())
+		if err != nil {
+			return fmt.Errorf("expected an integer: %w", err)
+		}
+		field.SetInt(n)
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		n, err := strconv.ParseUint(raw, 10, field.Type().Bits())
+		if err != nil {
+			return fmt.Errorf("expected a non-negative integer: %w", err)
+		}
+		field.SetUint(n)
+
+	case reflect.Float32, reflect.Float64:
+		f, err := strconv.ParseFloat(raw, field.Type().Bits())
+		if err != nil {
+			return fmt.Errorf("expected a number: %w", err)
+		}
+		field.SetFloat(f)
+
+	case reflect.Slice:
+		if field.Type().Elem().Kind() != reflect.String {
+			return fmt.Errorf("unsupported slice element type %s", field.Type().Elem())
+		}
+		parts := strings.Split(raw, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		field.Set(reflect.ValueOf(parts))
+
+	default:
+		return fmt.Errorf("unsupported field type %s", field.Kind())
+	}
+	return nil
 }

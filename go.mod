@@ -1,6 +1,6 @@
 module github.com/roonglit/credentials
 
-go 1.22.3
+go 1.24
 
 require github.com/spf13/viper v1.19.0
 

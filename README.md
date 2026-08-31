@@ -8,32 +8,68 @@ The `credentials` module provides a secure way to manage both sensitive and non-
 - **Environment Variables**: Environment variables can override configurations, providing additional flexibility.
 - **Custom Configuration Structs**: Define your own configuration struct and pass it to the module, making it adaptable to any configuration needs.
 
+## Security
+
+Credentials are sealed with **AES-256-GCM**. GCM is authenticated: if the file is
+modified by anyone without the master key, decryption fails loudly instead of
+returning altered contents.
+
+Versions before `v2` used AES-CFB, which is unauthenticated. Under CFB a
+plaintext bit can be flipped by flipping the matching ciphertext bit — no key
+required, and nothing detects it. Go's standard library now marks CFB deprecated
+for this reason. If your `credentials.yml.enc` predates this change, see
+[Migrating](#migrating).
+
+The master key is written `0600`. The encrypted file is written `0644` — it is
+meant to be committed; the key beside it never should be, which is what the
+bundled `.gitignore` enforces.
+
 ## Installation
-
-To use this module in your project, install it and its dependencies using `go install`.
-
-### 1. Install the Tool Globally
-
-Run the following command to install the `credentials` command-line tool globally:
 
 ```sh
 go install github.com/roonglit/credentials/cmd/credentials@latest
 ```
 
-This will install the `credentials` tool to your Go binaries, allowing you to use it anywhere on your system.
-
-## Initialize Configuration Files
-
-To initialize the configuration files, use the `credentials edit` command. This command will generate the `master.key` and create the `credentials.yml.enc` file in the `config` folder if they do not already exist.
-
-- **`master.key`**: This file is used to encrypt and decrypt sensitive data in `credentials.yml.enc`. It will be generated automatically in the `config` folder if it does not exist.
-- **`credentials.yml.enc`**: This encrypted file stores sensitive information, such as API keys. It will also be created in the `config` folder.
-
-To edit or initialize the encrypted configuration, run the following command:
+## Commands
 
 ```sh
-credentials edit
+credentials edit      # decrypt, open in $EDITOR, re-encrypt
+credentials show      # print the decrypted contents to stdout
+credentials migrate   # re-encrypt an old file, no editor needed
 ```
+
+Environment:
+
+| variable | meaning |
+|---|---|
+| `CREDENTIALS_DIR` | directory holding `master.key` and `credentials.yml.enc` (default `config`) |
+| `VISUAL`, `EDITOR` | editor used by `edit` (default `vi`) |
+| `CREDENTIALS_ALLOW_LEGACY` | set to `1` to read pre-v2 files during a transition |
+
+`credentials edit` creates both files on first run. It refuses to generate a new
+master key when an encrypted file already exists, since that would make the
+existing file permanently unreadable.
+
+## Migrating
+
+Old files are **not** read by default. That is deliberate: if the reader fell
+back to the legacy format whenever the header was absent, corrupting one header
+byte would force an authenticated file down the unauthenticated path — a
+downgrade attack costing a single byte.
+
+Migrate once, per project:
+
+```sh
+credentials migrate
+```
+
+That decrypts with the old format and rewrites with the new one, using the same
+master key. Commit the result. `credentials edit` migrates as a side effect of
+saving, so a file you were editing anyway needs nothing extra.
+
+If you need a transition period before migrating, set
+`CREDENTIALS_ALLOW_LEGACY=1` — but treat it as temporary, because nothing on that
+path can detect tampering.
 
 ## Reading Configuration in Your Project
 

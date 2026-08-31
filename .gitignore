@@ -1,0 +1,8 @@
+# Never commit a master key. The encrypted file is meant to be committed; the
+# key that opens it is not.
+master.key
+*.key
+
+# Local scratch
+/credentials
+/dist/
