@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // DefaultEditor is used when no editor is configured and neither $VISUAL nor
@@ -148,6 +150,41 @@ func (ce *ConfigEditor) Show() ([]byte, error) {
 		return nil, fmt.Errorf("credentials: read %s: %w", ce.CredentialsFile, err)
 	}
 	return ce.open(key, blob)
+}
+
+// Get returns one value by dotted path — "kchat.control_secret".
+//
+// For deploy tooling: Kamal's "secrets via a command" wants one value on
+// stdout, and piping the whole file through a YAML parser in a shell script is
+// how a secret ends up in a process list or a log.
+func (ce *ConfigEditor) Get(path string) (string, error) {
+	plaintext, err := ce.Show()
+	if err != nil {
+		return "", err
+	}
+
+	var tree map[string]any
+	if err := yaml.Unmarshal(plaintext, &tree); err != nil {
+		return "", fmt.Errorf("credentials: parse %s: %w", ce.CredentialsFile, err)
+	}
+
+	var cur any = tree
+	parts := strings.Split(path, ".")
+	for i, key := range parts {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("credentials: %s is not a section", strings.Join(parts[:i], "."))
+		}
+		cur, ok = m[key]
+		if !ok {
+			return "", fmt.Errorf("credentials: %s not found in %s", path, ce.CredentialsFile)
+		}
+	}
+
+	if cur == nil {
+		return "", fmt.Errorf("credentials: %s is empty in %s", path, ce.CredentialsFile)
+	}
+	return fmt.Sprint(cur), nil
 }
 
 // EncryptAndSave seals data and writes it to the credentials file.

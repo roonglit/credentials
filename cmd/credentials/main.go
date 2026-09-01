@@ -16,6 +16,8 @@ Commands:
   edit      decrypt, open in $EDITOR, re-encrypt
   show      print the decrypted contents to stdout
   migrate   re-encrypt an old unauthenticated file, without an editor
+  get PATH  print ONE value, e.g. credentials get -e staging kchat.control_secret
+            (for deploy tooling: Kamal's secrets-via-a-command)
 
 Flags:
   -e, --environment ENV   operate on config/credentials/ENV.yml.enc with its own
@@ -80,6 +82,19 @@ func run(args []string) error {
 		}
 		_, err = os.Stdout.Write(plaintext)
 		return err
+
+	case "get":
+		path := fs.Arg(0)
+		if path == "" {
+			return fmt.Errorf("usage: credentials get [-e ENV] section.key")
+		}
+		value, err := editor.Get(path)
+		if err != nil {
+			return err
+		}
+		// No trailing newline: this is consumed by $(...) in a secrets file.
+		fmt.Print(value)
+		return nil
 
 	case "migrate":
 		return editor.Migrate()
