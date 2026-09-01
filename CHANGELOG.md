@@ -17,6 +17,26 @@ under Go's semantic import versioning it also renames the module path to
 
 By then no file is on the old format and the import rewrite is the only work.
 
+## [1.3.0] - 2026-09-01
+
+### Added
+
+- **Nested keys are overridden by prefixed environment variables.** A section
+  like `facebook: {app_secret: …}` is overridden by `FACEBOOK_APP_SECRET`.
+  Nested values could already be read from the file but never overridden, which
+  looked exactly like the variable being ignored. Unprefixed names deliberately
+  do **not** reach into sections: with both `facebook:` and `line:` present, a
+  bare `APP_SECRET` is ambiguous, and applying it to one of them silently would
+  be worse than doing nothing. Optional pointer sections stay nil unless
+  something under them is set.
+- `ConfigReader.FlatShared` treats the shared file as one environment's settings
+  rather than a section per environment. Off by default — the sectioned shape is
+  the original and changing it would break existing projects — but a project
+  that gives every environment its own file has no use for sections, and the
+  sectioned shape has a sharp edge: the same key sits at a different depth
+  depending on which file it is in, and a value at the wrong depth is ignored
+  silently rather than rejected.
+
 ## [1.2.0] - 2026-09-01
 
 Per-environment credentials, in the shape Rails has used since 6.0. Additive —
@@ -117,7 +137,8 @@ consumers use so a future change cannot break it silently.
 Initial release: encrypted credentials file, master key, `credentials edit`, and
 a reader that unmarshals into a user-supplied struct with environment overrides.
 
-[Unreleased]: https://github.com/roonglit/credentials/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/roonglit/credentials/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/roonglit/credentials/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/roonglit/credentials/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/roonglit/credentials/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/roonglit/credentials/releases/tag/v1.0.0
