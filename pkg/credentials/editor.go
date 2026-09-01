@@ -44,6 +44,25 @@ func NewConfigEditor(configDir, credentialsFile, masterKeyFile, editor string) *
 	}
 }
 
+// NewEnvironmentEditor edits ONE environment's credentials, at
+// <configDir>/credentials/<environment>.yml.enc with its own key beside it.
+//
+// Prefer this over NewConfigEditor for anything but development: a key that
+// opens only staging cannot also open production.
+func NewEnvironmentEditor(configDir, environment, editor string) *ConfigEditor {
+	credentialsFile, keyFile := EnvironmentPaths(configDir, environment)
+
+	return &ConfigEditor{
+		// The scoped pair lives one directory down, and that is the directory
+		// that has to exist before writing.
+		ConfigDir:       filepath.Dir(credentialsFile),
+		CredentialsFile: credentialsFile,
+		MasterKeyFile:   keyFile,
+		Editor:          editor,
+		AllowLegacy:     legacyAllowed(),
+	}
+}
+
 // OpenEditor decrypts, edits, and re-encrypts the credentials file.
 //
 // Re-encryption always writes the current format, so a legacy file is migrated
@@ -85,7 +104,7 @@ func (ce *ConfigEditor) Migrate() error {
 		return nil
 	}
 
-	key, err := ReadMasterKey(ce.MasterKeyFile)
+	key, err := ce.key()
 	if err != nil {
 		return err
 	}
@@ -101,6 +120,17 @@ func (ce *ConfigEditor) Migrate() error {
 	return nil
 }
 
+// key resolves this editor's master key.
+//
+// It goes through readKey rather than reading the file directly, so
+// CREDENTIALS_KEY works for `credentials show` and `credentials edit` exactly as
+// it does for the reader. They diverged once: the reader honoured the variable
+// and the editor did not, which made `show` quietly fall back to the key on disk
+// and look like it had decrypted something it should not have.
+func (ce *ConfigEditor) key() ([]byte, error) {
+	return readKey(paths{key: ce.MasterKeyFile})
+}
+
 // open decrypts according to this editor's legacy policy.
 func (ce *ConfigEditor) open(key, blob []byte) ([]byte, error) {
 	return openBlob(key, blob, ce.AllowLegacy, ce.CredentialsFile)
@@ -108,7 +138,7 @@ func (ce *ConfigEditor) open(key, blob []byte) ([]byte, error) {
 
 // Show returns the decrypted contents.
 func (ce *ConfigEditor) Show() ([]byte, error) {
-	key, err := ReadMasterKey(ce.MasterKeyFile)
+	key, err := ce.key()
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +202,7 @@ func (ce *ConfigEditor) load() (key, plaintext []byte, err error) {
 		return key, plaintext, nil
 
 	default:
-		key, err = ReadMasterKey(ce.MasterKeyFile)
+		key, err = ce.key()
 		if err != nil {
 			return nil, nil, err
 		}

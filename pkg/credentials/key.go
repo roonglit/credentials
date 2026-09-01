@@ -35,16 +35,22 @@ func ReadMasterKey(path string) ([]byte, error) {
 		return nil, fmt.Errorf("credentials: read master key: %w", err)
 	}
 
+	return decodeKey(string(raw), path)
+}
+
+// decodeKey validates a hex key from any source — a file or an environment
+// variable — so both routes fail the same way.
+func decodeKey(raw, source string) ([]byte, error) {
 	// Trim first. A key written with `echo $MASTER_KEY > master.key`, or piped
 	// through base64 -d in a Dockerfile, carries a trailing newline — which
 	// makes hex decoding fail with an error that says nothing about newlines.
-	key, err := hex.DecodeString(strings.TrimSpace(string(raw)))
+	key, err := hex.DecodeString(strings.TrimSpace(raw))
 	if err != nil {
-		return nil, fmt.Errorf("credentials: master key at %s is not valid hex: %w", path, err)
+		return nil, fmt.Errorf("credentials: key from %s is not valid hex: %w", source, err)
 	}
 
 	if err := checkKey(key); err != nil {
-		return nil, fmt.Errorf("%w (at %s)", err, path)
+		return nil, fmt.Errorf("%w (from %s)", err, source)
 	}
 	return key, nil
 }

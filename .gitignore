@@ -2,6 +2,7 @@
 # key that opens it is not.
 master.key
 *.key
+config/credentials/*.key
 
 # Local scratch
 /credentials

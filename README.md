@@ -30,6 +30,49 @@ bundled `.gitignore` enforces.
 go install github.com/roonglit/credentials/cmd/credentials@latest
 ```
 
+## Environments
+
+One shared file, or one file per environment with its own key:
+
+```
+config/credentials.yml.enc            + config/master.key                shared
+config/credentials/staging.yml.enc    + config/credentials/staging.key
+config/credentials/production.yml.enc + config/credentials/production.key
+```
+
+**Use separate files for anything but development.** The point is not tidiness,
+it is key separation: with one shared key, anyone who can boot the app locally
+can decrypt production. A new hire gets `master.key` on their first day and it
+opens the production database URL. Separate files mean a leaked development key
+leaks only development.
+
+```sh
+credentials edit                            # shared file
+credentials edit -e production              # config/credentials/production.yml.enc
+credentials show -e staging
+```
+
+A per-environment file is **flat** — the file already *is* that environment, so
+there is no section to nest under:
+
+```yaml
+# config/credentials/production.yml.enc
+DATABASE_URL: postgres://…
+API_TOKEN: …
+```
+
+The shared file keeps the older shape, a section per environment, and is still
+what `Read` falls back to when no per-environment file exists. Projects that
+have only the shared file need no changes.
+
+```go
+reader := credentials.NewConfigReader()      // defaults to ./config
+err := reader.Read(os.Getenv("APP_ENV"), &cfg)
+```
+
+Set `CREDENTIALS_KEY` to a hex key to skip the key file entirely — the role
+`RAILS_MASTER_KEY` plays in Rails, and what you want in a container.
+
 ## Commands
 
 ```sh
@@ -45,6 +88,7 @@ Environment:
 | `CREDENTIALS_DIR` | directory holding `master.key` and `credentials.yml.enc` (default `config`) |
 | `VISUAL`, `EDITOR` | editor used by `edit` (default `vi`) |
 | `CREDENTIALS_ALLOW_LEGACY` | set to `0` for strict mode: refuse pre-v2 files instead of warning |
+| `CREDENTIALS_KEY` | hex key, used instead of any key file |
 
 `credentials edit` creates both files on first run. It refuses to generate a new
 master key when an encrypted file already exists, since that would make the

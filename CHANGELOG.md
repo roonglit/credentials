@@ -17,6 +17,37 @@ under Go's semantic import versioning it also renames the module path to
 
 By then no file is on the old format and the import rewrite is the only work.
 
+## [1.2.0] - 2026-09-01
+
+Per-environment credentials, in the shape Rails has used since 6.0. Additive —
+existing projects need no changes.
+
+### Added
+
+- `config/credentials/<env>.yml.enc` with its own `<env>.key` beside it, chosen
+  automatically by `Read(env, …)` when present. A per-environment file is flat:
+  it already *is* that environment, so there is no section to nest under.
+- `credentials edit -e production` / `show -e` / `migrate -e`.
+- `NewEnvironmentEditor(configDir, environment, editor)`.
+- `EnvironmentPaths(configDir, environment)` for tooling and error messages.
+- `CREDENTIALS_KEY` supplies a hex key directly, so a container needs no key file
+  on disk — the role `RAILS_MASTER_KEY` plays in Rails.
+
+### Why
+
+With one shared file and one master key, anyone who can boot the app in
+development can decrypt production: a new hire is handed `master.key` on day one
+and it opens the production database URL. Separate files mean separate keys, so a
+leaked development key leaks only development.
+
+### Fixed
+
+- The editor ignored `CREDENTIALS_KEY` while the reader honoured it, so
+  `credentials show -e production` quietly fell back to the key beside the file.
+  Handing it the wrong key still printed the secrets — it looked like a
+  decryption success and was not one. Both now share one key-resolution path,
+  and a test asserts the editor refuses a foreign key.
+
 ## [1.1.0] - 2026-08-31
 
 Credentials are now sealed with authenticated encryption. **Upgrading requires
@@ -86,6 +117,7 @@ consumers use so a future change cannot break it silently.
 Initial release: encrypted credentials file, master key, `credentials edit`, and
 a reader that unmarshals into a user-supplied struct with environment overrides.
 
-[Unreleased]: https://github.com/roonglit/credentials/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/roonglit/credentials/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/roonglit/credentials/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/roonglit/credentials/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/roonglit/credentials/releases/tag/v1.0.0

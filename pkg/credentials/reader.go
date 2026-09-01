@@ -15,6 +15,11 @@ import (
 
 // ConfigReader loads an encrypted credentials file into a struct.
 type ConfigReader struct {
+	// ConfigDir is the root the per-environment lookup searches under.
+	ConfigDir string
+
+	// CredentialsFile and MasterKeyFile are the SHARED pair, used when the
+	// environment has no file of its own.
 	CredentialsFile string
 	MasterKeyFile   string
 
@@ -32,30 +37,39 @@ func NewConfigReader(configDir ...string) *ConfigReader {
 	}
 
 	return &ConfigReader{
+		ConfigDir:       dir,
 		CredentialsFile: filepath.Join(dir, "credentials.yml.enc"),
 		MasterKeyFile:   filepath.Join(dir, "master.key"),
 		AllowLegacy:     legacyAllowed(),
 	}
 }
 
-// Read decrypts the credentials file, selects the mode's section, and unmarshals
-// it into config, which must be a non-nil pointer to a struct. Environment
-// variables override what the file supplies.
-func (cr *ConfigReader) Read(mode string, config interface{}) error {
-	key, err := ReadMasterKey(cr.MasterKeyFile)
+// Read decrypts the credentials for an environment and unmarshals them into
+// config, which must be a non-nil pointer to a struct. Environment variables
+// override whatever the file supplies.
+//
+// If config/credentials/<environment>.yml.enc exists it is used, opened with
+// that environment's own key, and the WHOLE file is the config — no section
+// nesting, because the file already belongs to one environment. Otherwise the
+// shared file is read and its <environment> section is selected, which is how
+// this worked before per-environment files existed.
+func (cr *ConfigReader) Read(environment string, config interface{}) error {
+	p := resolve(cr.ConfigDir, environment, cr.CredentialsFile, cr.MasterKeyFile)
+
+	key, err := readKey(p)
 	if err != nil {
 		return err
 	}
 
-	blob, err := os.ReadFile(cr.CredentialsFile)
+	blob, err := os.ReadFile(p.credentials)
 	if err != nil {
-		return fmt.Errorf("credentials: read %s: %w", cr.CredentialsFile, err)
+		return fmt.Errorf("credentials: read %s: %w", p.credentials, err)
 	}
 
 	// One decryption path for the whole package — see crypto.go. A second copy
 	// lived here previously, which meant a change to one could silently diverge
 	// from the other and only surface as a boot failure in production.
-	plaintext, err := openBlob(key, blob, cr.AllowLegacy, cr.CredentialsFile)
+	plaintext, err := openBlob(key, blob, cr.AllowLegacy, p.credentials)
 	if err != nil {
 		return err
 	}
@@ -69,8 +83,13 @@ func (cr *ConfigReader) Read(mode string, config interface{}) error {
 		return fmt.Errorf("credentials: parse decrypted config: %w", err)
 	}
 
-	if err := v.UnmarshalKey(mode, config); err != nil {
-		return fmt.Errorf("credentials: unmarshal %q: %w", mode, err)
+	if p.scoped {
+		// The file IS this environment.
+		if err := v.Unmarshal(config); err != nil {
+			return fmt.Errorf("credentials: unmarshal %s: %w", p.credentials, err)
+		}
+	} else if err := v.UnmarshalKey(environment, config); err != nil {
+		return fmt.Errorf("credentials: unmarshal %q section: %w", environment, err)
 	}
 
 	return applyEnvOverrides(config)
